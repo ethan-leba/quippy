@@ -4,6 +4,7 @@
             [quippy.websockets :as ws]))
 
 (defonce messages (reagent/atom []))
+(defonce textbox (reagent/atom []))
 
 (defn message-list []
  [:ul
@@ -11,19 +12,16 @@
     ^{:key i}
     [:li message])])
 
-(defn message-input []
- (let [value (atom nil)]
-   (fn []
-     [:input.form-control
+(defn message-input [value]
+  [:input
       {:type :text
-       :placeholder "type in a message and press enter"
        :value @value
        :on-change #(reset! value (-> % .-target .-value))
        :on-key-down
        #(when (= (.-keyCode %) 13)
           (ws/send-transit-msg!
            {:message @value})
-          (reset! value nil))}])))
+          (reset! value nil))}])
 
 (defn home-page []
  [:div.container
@@ -35,7 +33,7 @@
     [message-list]]]
   [:div.row
    [:div.col-sm-6
-    [message-input]]]])
+    [message-input textbox]]]])
 
 (defn update-messages! [{:keys [message]}]
   (swap! messages #(vec (take 10 (conj % message)))))
