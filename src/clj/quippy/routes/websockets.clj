@@ -3,28 +3,33 @@
    [clojure.tools.logging :as log]
    [immutant.web.async :as async]))
 
-(defonce channels (atom #{}))
+(defonce channels (atom {}))
 
-(defn connect! [channel]
+(defn connect! "Establishes a connection"
+  [channel type]
   (log/info "channel open")
-  (swap! channels conj channel))
+  (swap! channels assoc channel {:type type :lobby nil}))
 
 (defn disconnect! [channel {:keys [code reason]}]
   (log/info "close code:" code "reason:" reason)
-  (swap! channels #(remove #{channel} %)))
+  (swap! channels #(dissoc channel %)))
 
-(defn notify-clients! [channel msg]
-  (doseq [channel @channels]
+(defn process-user-event! [channel msg]
+  (doseq [channel (keys @channels)]
     (async/send! channel msg)))
 
-(def websocket-callbacks
-  "WebSocket callback functions"
-  {:on-open connect!
-   :on-close disconnect!
-   :on-message notify-clients!})
+(defn handle-action! [channel msg])
 
-(defn ws-handler [request]
-  (async/as-channel request websocket-callbacks))
+(defn websocket-callbacks
+  "WebSocket callback functions"
+  [type]
+  {:on-open #(connect! % type)
+   :on-close disconnect!
+   :on-message process-user-event!})
+
+(defn ws-handler [request type]
+  (async/as-channel request #(websocket-callbacks type)))
 
 (def websocket-routes
-  [["/ws" ws-handler]])
+  [["/ws-user" #(ws-handler % :user)]
+   ["/ws-display" #(ws-handler % :display)]])
