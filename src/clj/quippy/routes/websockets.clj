@@ -4,18 +4,18 @@
    [quippy.game.core :as game]
    [immutant.web.async :as async]))
 
-(defonce channels (atom {}))
+(defonce channels (atom #{}))
 
 (defonce game-state (atom game/default-game-state))
 
 (defn connect! "Establishes a connection"
-  [channel type]
+  [channel]
   (log/info "channel open")
-  (swap! channels assoc channel {:type type :lobby nil}))
+  (swap! channels conj channel))
 
 (defn disconnect! [channel {:keys [code reason]}]
   (log/info "close code:" code "reason:" reason)
-  (swap! channels #(dissoc channel %)))
+  (swap! channels #(remove #{channel} %)))
 
 (defn process-user-event!
   "Handles the IO of event processing"
@@ -25,16 +25,14 @@
     (doseq [[channel response] responses]
       (async/send! channel response))))
 
-(defn websocket-callbacks
+(def websocket-callbacks
   "WebSocket callback functions"
-  [type]
-  {:on-open #(connect! % type)
+  {:on-open connect!
    :on-close disconnect!
    :on-message process-user-event!})
 
-(defn ws-handler [request type]
-  (async/as-channel request #(websocket-callbacks type)))
+(defn ws-handler [request]
+  (async/as-channel request websocket-callbacks))
 
 (def websocket-routes
-  [["/ws-user" #(ws-handler % :user)]
-   ["/ws-display" #(ws-handler % :display)]])
+ [["/ws" ws-handler]])
