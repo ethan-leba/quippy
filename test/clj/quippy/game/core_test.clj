@@ -10,8 +10,6 @@
 (defn simulate-events [initial-state & [events]]
   (reduce run-event [initial-state '()] events))
 
-(simulate-events default-game-state)
-
 (defn repeat-map [keys val]
   (into {} (for [key keys] [key val])))
 
