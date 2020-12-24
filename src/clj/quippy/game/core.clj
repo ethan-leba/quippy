@@ -11,23 +11,23 @@
 
 (defmulti process-user-event
   "Applies a user event to the game state along with a list of messages to send"
-  (fn [game-state event]
+  (fn [game-state event player]
     [(:action event) (:state game-state)]))
 
-(defmethod process-user-event :default [game-state _] game-state)
+(defmethod process-user-event :default [game-state _ _] [game-state {}])
 
 (defmethod process-user-event
   [:game-start :lobby]
-  [game-state event])
+  [game-state event player])
 
 (defmethod process-user-event
   [:submit-prompt :prompt]
-  [game-state {:keys [prompt user]}])
+  [game-state {:keys [prompt user]} player])
 
 (defmethod process-user-event
   [:submit-quip :quip]
-  [game-state {:keys [quip user]}])
+  [game-state {:keys [quip user]} player])
 
 (defmethod process-user-event
   [:submit-vote :voting]
-  [game-state {:keys [quip user]}])
+  [game-state {:keys [quip user]} player])
