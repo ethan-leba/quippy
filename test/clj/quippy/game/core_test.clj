@@ -5,15 +5,15 @@
 
 (defn run-event [[game-state response-list] {:keys [event player]}]
   (let [[next-game-state responses] (process-user-event game-state event player)]
-    [next-game-state (cons responses response-list)]))
+    [next-game-state (conj response-list responses)]))
 
-(defn simulate-events [initial-state & [events]]
-  (reduce run-event [initial-state '()] events))
+(defn simulate-events [initial-state & events]
+  (reduce run-event [initial-state []] events))
 
 (defn repeat-map [keys val]
   (into {} (for [key keys] [key val])))
 
-(def players (map (juxt (comp keyword str) str) "abcdefg"))
+(def players (into (sorted-map) (map (juxt (comp keyword str) str) "abcdefg")))
 
 (deftest test-process-user-event
   (testing "invalid action"
@@ -34,32 +34,33 @@
         [prompt-state start-responses]
         (simulate-events
          lobby-state
-         {:event {:action :lobby-start}
+         {:event {:action :game-start}
           :player :a})
-        [_ start-responses]
-        (simulate-events
+        [_ prompt-responses]
+        (apply
+         simulate-events
          lobby-state
-         {:event {:action :prompt-submit
-                  :prompts '("a" "b")}
-          :player :a}
-         {:event {:action :prompt-submit
-                  :prompts '("c" "d")}
-          :player :b}
-         {:event {:action :prompt-submit
-                  :prompts '("e" "f")}
-          :player :c})]
+         (for [[id username] players]
+           {:event {:action :prompt-submit
+                    :prompts (map #(str "prompt-" username "-" %) (range 2))}
+            :player :a}))]
     (testing "joining the lobby"
       (is (= (for [i (range (count players))
-                   :let [in-lobby (take (inc i) players)]]
+                   :let [in-lobby (take (inc i) (into [] players))]] ;; Ordering issues? 
                (repeat-map (map first in-lobby)
-                           {:state :lobby :players (map second in-lobby)}))
+                           {:players (map second in-lobby)}))
              lobby-responses)))
     (testing "starting the game"
-      (is (= '((repeat-map [:a :b :c] {:state :prompt :number-of-prompts 2}))
+      (is (= [(repeat-map (map first players) {:state :prompt})]
              start-responses)))
     (testing "entering prompts"
-      (is (= '({:a nil}
-               {:b nil}
-               {:c nil})
-             start-responses))))) 
+      (let [ack-responses (drop-last 1 prompt-responses)
+            completed-response (take-last 1 prompt-responses)]
+        (is (= (repeat (-> players count dec) {})
+               ack-responses))
+        (doseq [[player response] completed-response]
+          (is (= (:state response) :quip))
+          (is (seq? (:prompts response)))
+          (is (not-any? #(contains? (get player players) %)
+                        (:prompts response))))))))
 
