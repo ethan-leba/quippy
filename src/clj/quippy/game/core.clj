@@ -23,6 +23,7 @@
     [new-state (into {} (for [player-id (-> new-state :players keys)]
                           [player-id {:players (-> new-state :players vals)}]))]))
 
+;; TODO: Equal quips per player
 (defn make-rounds! "Generates the ordering of rounds randomly"
   [players players-per-prompt]
   (into {} (for [player (keys players)
@@ -33,22 +34,37 @@
                                     shuffle
                                     (take players-per-prompt)
                                     (map #(vector % nil))))}])))
-
 (defmethod process-user-event
   [:game-start :lobby]
   [game-state _ player]
   (let [new-state (-> game-state
                       (assoc :state :prompt)
                       (assoc :rounds (make-rounds! (:players game-state) players-per-prompt))
-                      (assoc :score (-> (:players game-state)
+                      (assoc :score (->> game-state
+                                        :players
+                                        keys
                                         (map #(vector % 0))
                                         (into {}))))]
     [new-state (into {} (for [player-id (-> new-state :players keys)]
                           [player-id {:state :prompt}]))]))
 
+(defn extract-prompts
+  "Retrieves the prompts that a player must quip on"
+  [{:keys [rounds]} player]
+  (for [[_ {:keys [prompt quips]}] rounds
+        :when (contains? quips player)]
+    prompt))
+
 (defmethod process-user-event
   [:submit-prompt :prompt]
-  [game-state {:keys [prompt user]} player])
+  [game-state {:keys [prompt]} player]
+  (let [new-state (assoc-in game-state [:rounds player :prompt] prompt)]
+    (if-not (every? :prompt (-> new-state :rounds vals))
+      [new-state {}]
+      [(assoc new-state :state :quip)
+       (into {} (for [player-id (-> new-state :players keys)]
+         [player-id {:state :quip
+                     :prompts (extract-prompts new-state player-id)}]))])))
 
 (defmethod process-user-event
   [:submit-quip :quip]

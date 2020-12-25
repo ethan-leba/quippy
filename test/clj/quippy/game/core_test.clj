@@ -1,7 +1,9 @@
 (ns quippy.game.core-test
   (:require
    [clojure.test :refer :all]
-   [quippy.game.core :refer :all]))
+   [quippy.game.core :refer :all]
+   [clojure.string :as str]))
+
 
 (defn run-event [[game-state response-list] {:keys [event player]}]
   (let [[next-game-state responses] (process-user-event game-state event player)]
@@ -15,6 +17,7 @@
 
 (def players (into (sorted-map) (map (juxt (comp keyword str) str) "abcdefg")))
 
+;; TODO: Separate tests by state
 (deftest test-process-user-event
   (testing "invalid action"
     (let [[_ response-list]
@@ -36,14 +39,22 @@
          lobby-state
          {:event {:action :game-start}
           :player :a})
-        [_ prompt-responses]
+        [quip-state prompt-responses]
         (apply
          simulate-events
-         lobby-state
+         prompt-state
          (for [[id username] players]
-           {:event {:action :prompt-submit
-                    :prompts (map #(str "prompt-" username "-" %) (range 2))}
-            :player :a}))]
+           {:event {:action :submit-prompt
+                    :prompt (str "prompt-" username)}
+            :player id}))
+        [vote-state quip-responses]
+        (apply
+         simulate-events
+         prompt-state
+         (for [[id username] players]
+           {:event {:action :submit-prompt
+                    :prompt (str "prompt-" username)}
+            :player id}))]
     (testing "joining the lobby"
       (is (= (for [i (range (count players))
                    :let [in-lobby (take (inc i) (into [] players))]] ;; Ordering issues? 
@@ -55,12 +66,12 @@
              start-responses)))
     (testing "entering prompts"
       (let [ack-responses (drop-last 1 prompt-responses)
-            completed-response (take-last 1 prompt-responses)]
+            completed-response (first (take-last 1 prompt-responses))]
         (is (= (repeat (-> players count dec) {})
                ack-responses))
         (doseq [[player response] completed-response]
           (is (= (:state response) :quip))
-          (is (seq? (:prompts response)))
-          (is (not-any? #(contains? (get player players) %)
+          (is (not-any? #(str/includes? % (get players player))
                         (:prompts response))))))))
+
 
