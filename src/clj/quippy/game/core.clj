@@ -1,13 +1,13 @@
 (ns quippy.game.core)
 
 (def default-game-state
-  {:state :waiting
-   :players #{}
+  {:state :lobby
+   :players {}
    :rounds nil
-   :prompt nil
-   :quips nil
    :votes nil
    :score nil})
+
+(def players-per-prompt 3)
 
 (defmulti process-user-event
   "Applies a user event to the game state along with a list of messages to send"
@@ -17,8 +17,34 @@
 (defmethod process-user-event :default [game-state _ _] [game-state {}])
 
 (defmethod process-user-event
+  [:lobby-join :lobby]
+  [game-state {:keys [username]} player]
+  (let [new-state (assoc-in game-state [:players player] username)]
+    [new-state (into {} (for [player-id (-> new-state :players keys)]
+                          [player-id {:players (-> new-state :players vals)}]))]))
+
+(defn make-rounds! "Generates the ordering of rounds randomly"
+  [players players-per-prompt]
+  (into {} (for [player (keys players)
+                 :let [quippers (-> players (dissoc player) keys)]]
+             [player
+              {:prompt nil
+               :quips (into {} (->> quippers
+                                    shuffle
+                                    (take players-per-prompt)
+                                    (map #(vector % nil))))}])))
+
+(defmethod process-user-event
   [:game-start :lobby]
-  [game-state event player])
+  [game-state _ player]
+  (let [new-state (-> game-state
+                      (assoc :state :prompt)
+                      (assoc :rounds (make-rounds! (:players game-state) players-per-prompt))
+                      (assoc :score (-> (:players game-state)
+                                        (map #(vector % 0))
+                                        (into {}))))]
+    [new-state (into {} (for [player-id (-> new-state :players keys)]
+                          [player-id {:state :prompt}]))]))
 
 (defmethod process-user-event
   [:submit-prompt :prompt]
