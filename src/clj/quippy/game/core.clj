@@ -3,6 +3,7 @@
 (def default-game-state
   {:state :lobby
    :players {}
+   :prompts nil
    :rounds nil
    :votes nil
    :score nil})
@@ -39,7 +40,7 @@
   [game-state _ player]
   (let [new-state (-> game-state
                       (assoc :state :prompt)
-                      (assoc :rounds (make-rounds! (:players game-state) players-per-prompt))
+                      (assoc :prompts (make-rounds! (:players game-state) players-per-prompt))
                       (assoc :score (->> game-state
                                         :players
                                         keys
@@ -50,25 +51,51 @@
 
 (defn extract-prompts
   "Retrieves the prompts that a player must quip on"
-  [{:keys [rounds]} player]
-  (for [[_ {:keys [prompt quips]}] rounds
+  [{:keys [prompts]} player]
+  (for [[_ {:keys [prompt quips]}] prompts
         :when (contains? quips player)]
     prompt))
 
 (defmethod process-user-event
   [:submit-prompt :prompt]
   [game-state {:keys [prompt]} player]
-  (let [new-state (assoc-in game-state [:rounds player :prompt] prompt)]
-    (if-not (every? :prompt (-> new-state :rounds vals))
+  (let [new-state (assoc-in game-state [:prompts player :prompt] prompt)]
+    (if-not (every? :prompt (-> new-state :prompts vals))
       [new-state {}]
       [(assoc new-state :state :quip)
        (into {} (for [player-id (-> new-state :players keys)]
          [player-id {:state :quip
                      :prompts (extract-prompts new-state player-id)}]))])))
 
+(defn next-voting-round
+  "Generates the next voting round if exists, or transitions to the final state"
+  [{:keys [rounds] :as game-state}]
+  ;; TODO: Handle no rounds case + clean up naming
+  (let [[judge & rest-of-rounds] rounds
+        selected-round (-> game-state :prompts judge)]
+    [(assoc game-state :rounds rest-of-rounds)
+     (into {} (for [player-id (-> game-state :players keys)]
+                [player-id {:state :vote
+                            :prompt (:prompt selected-round)
+                            :quips (-> selected-round :quips vals)
+                            :can-vote ((complement contains?) (:quips selected-round) player-id)}]))]))
+
 (defmethod process-user-event
   [:submit-quip :quip]
-  [game-state {:keys [quip user]} player])
+  [game-state {:keys [quip prompt]} player]
+  (let [intermediate-state (or (some->> (:prompts game-state)
+                               (filter (fn [[k v]] (= (:prompt v) prompt)))
+                               ;; First elem passing predicate, and then first of k-v tuple
+                               first
+                               first
+                               (#(assoc-in game-state [:prompts % :quips player] quip)))
+                      game-state)]
+    (if-not (every? some? (->> intermediate-state :prompts vals (mapcat (comp vals :quips))))
+      [intermediate-state {}]
+      (-> intermediate-state
+          (assoc :state :vote)
+          (assoc :rounds (-> intermediate-state :players keys shuffle))
+          next-voting-round))))
 
 (defmethod process-user-event
   [:submit-vote :voting]
