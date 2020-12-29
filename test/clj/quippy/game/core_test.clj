@@ -52,6 +52,12 @@
              :prompt (str "prompt-" username)}
      :player id}))
 
+(def prompt->player
+  (->> prompt-submit-events
+       (map (fn [{:keys [event player]
+                  {:keys [prompt]} :event}] [prompt player]))
+       (into {})))
+
 (defn make-quip-submit-event [assigned-prompts]
   (for [[id {:keys [prompts]}] assigned-prompts
         prompt prompts]
@@ -64,6 +70,26 @@
   (-> (simulate-events [lobby-join-events game-start-events] prompt-submit-events)
     last
     make-quip-submit-event))
+
+(def quip->player
+  (->> quip-submit-events
+       (map (fn [{:keys [event player]
+                  {:keys [prompt quip]} :event}] [[prompt quip] player]))
+       (into {})))
+
+(defn make-vote-submit-event [quip-responses]
+  (for [[[id {:keys [quips can-vote]}] vote-idx] (zipmap quip-responses (range))
+        :when can-vote]
+    {:event {:action :submit-vote
+             :vote-for (as-> vote-idx vote
+                         (mod vote (count quips))
+                         (nth quips vote))}
+     :player id}))
+
+(def vote-submit-event
+  (-> (simulate-events [lobby-join-events game-start-events prompt-submit-events] quip-submit-events)
+      last
+      make-vote-submit-event))
 
 (deftest test-starting
   (testing "invalid action"
@@ -110,4 +136,35 @@
         (is (= (:can-vote response)
                (not-any? #(str/includes? % (get players player))
                          (:quips response))))
+        (is (str/includes? (:prompt response) "prompt"))))))
+
+(deftest test-vote
+  (testing "voting 1 round"
+    (let [vote-responses (simulate-events [lobby-join-events
+                                           game-start-events
+                                           prompt-submit-events
+                                           quip-submit-events]
+                                          vote-submit-event)
+          ack-responses (drop-last 1 vote-responses)
+          completed-response (last vote-responses)
+          first-vote-prompt (-> (simulate-events [lobby-join-events game-start-events prompt-submit-events] quip-submit-events)
+                                last
+                                vals
+                                first
+                                :prompt)
+          expected-votes (->> vote-submit-event
+                              (map #(get-in % [:event :vote-for]))
+                              (group-by identity)
+                              (map (fn [[k v]] [k {:votes (count v)
+                                                   :quipper (->> [first-vote-prompt (first v)]
+                                                                 (get quip->player)
+                                                                 (get players))}]))
+                              (into {}))]
+      (is (= (repeat (-> players count (- 4)) {})
+             ack-responses))
+      (is ((complement empty?) completed-response))
+      (doseq [[player response] completed-response]
+        (is (= (:state response) :results))
+        (is (= (:quips response) expected-votes))
+        (is (= (:prompter response) (get prompt->player (:prompt response))))
         (is (str/includes? (:prompt response) "prompt"))))))

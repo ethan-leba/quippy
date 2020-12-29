@@ -1,4 +1,5 @@
-(ns quippy.game.core)
+(ns quippy.game.core
+  (:require [clojure.set :as set]))
 
 (def default-game-state
   {:state :lobby
@@ -73,7 +74,14 @@
   ;; TODO: Handle no rounds case + clean up naming
   (let [[judge & rest-of-rounds] rounds
         selected-round (-> game-state :prompts judge)]
-    [(assoc game-state :rounds rest-of-rounds)
+    [(-> game-state
+         (assoc :rounds rest-of-rounds)
+         (assoc :quip->player (-> selected-round :quips set/map-invert))
+         (assoc :current-round judge)
+         (assoc :votes (->> selected-round
+                            :quips
+                            (map (fn [[k _]] [k 0]))
+                            (into {}))))
      (into {} (for [player-id (-> game-state :players keys)]
                 [player-id {:state :vote
                             :prompt (:prompt selected-round)
@@ -98,5 +106,23 @@
           next-voting-round))))
 
 (defmethod process-user-event
-  [:submit-vote :voting]
-  [game-state {:keys [quip user]} player])
+  [:submit-vote :vote]
+  [game-state {:keys [vote-for]} player]
+  (let [new-state (-> game-state
+                      (update-in [:votes (get (:quip->player game-state) vote-for)] inc))]
+    (if-not (= (-> game-state :players count (- players-per-prompt))
+               (->> new-state :votes vals (reduce +)))
+      [new-state {}]
+      [new-state
+       (into {} (for [player-id (-> new-state :players keys)]
+                  [player-id {:state :results
+                              :quips (->> (:quip->player new-state)
+                                          (map (fn [[quip player]]
+                                                 [quip {:quipper ((:players new-state) player)
+                                                        :votes (get-in
+                                                                new-state
+                                                                [:votes
+                                                                 ((:quip->player new-state) quip)])}]))
+                                          (into {}))
+                              :prompter (-> new-state :current-round)
+                              :prompt (get-in new-state [:prompts (:current-round new-state) :prompt])}]))])))
