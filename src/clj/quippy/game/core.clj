@@ -72,21 +72,31 @@
   "Generates the next voting round if exists, or transitions to the final state"
   [{:keys [rounds] :as game-state}]
   ;; TODO: Handle no rounds case + clean up naming
-  (let [[judge & rest-of-rounds] rounds
-        selected-round (-> game-state :prompts judge)]
-    [(-> game-state
-         (assoc :rounds rest-of-rounds)
-         (assoc :quip->player (-> selected-round :quips set/map-invert))
-         (assoc :current-round judge)
-         (assoc :votes (->> selected-round
-                            :quips
-                            (map (fn [[k _]] [k 0]))
-                            (into {}))))
+  (if-not (seq rounds)
+    [(assoc game-state :state :final)
      (into {} (for [player-id (-> game-state :players keys)]
-                [player-id {:state :vote
-                            :prompt (:prompt selected-round)
-                            :quips (-> selected-round :quips vals)
-                            :can-vote ((complement contains?) (:quips selected-round) player-id)}]))]))
+                [player-id {:state :final
+                            :scores (->> game-state
+                                         :score
+                                         (map (fn [[player score]] [((:players game-state) player) score]))
+                                         (into {}))}]))]
+    (let [[judge & rest-of-rounds] rounds
+          selected-round (-> game-state :prompts judge)
+          score-tracker (->> selected-round
+                             :quips
+                             (map (fn [[k _]] [k 0]))
+                             (into {}))]
+      [(-> game-state
+           (assoc :rounds rest-of-rounds)
+           (assoc :quip->player (-> selected-round :quips set/map-invert))
+           (assoc :current-round judge)
+           (assoc :votes store-tracker)
+           (assoc :score (or (:score game-state) score-tracker)))
+       (into {} (for [player-id (-> game-state :players keys)]
+                  [player-id {:state :vote
+                              :prompt (:prompt selected-round)
+                              :quips (-> selected-round :quips vals)
+                              :can-vote ((complement contains?) (:quips selected-round) player-id)}]))])))
 
 (defmethod process-user-event
   [:submit-quip :quip]
@@ -109,7 +119,8 @@
   [:submit-vote :vote]
   [game-state {:keys [vote-for]} player]
   (let [new-state (-> game-state
-                      (update-in [:votes (get (:quip->player game-state) vote-for)] inc))]
+                      (update-in [:votes (get (:quip->player game-state) vote-for)] inc)
+                      (update-in [:score (get (:quip->player game-state) vote-for)] inc))]
     (if-not (= (-> game-state :players count (- players-per-prompt))
                (->> new-state :votes vals (reduce +)))
       [new-state {}]
@@ -125,4 +136,5 @@
                                                                  ((:quip->player new-state) quip)])}]))
                                           (into {}))
                               :prompter (-> new-state :current-round)
-                              :prompt (get-in new-state [:prompts (:current-round new-state) :prompt])}]))])))
+                              :prompt (get-in new-state [:prompts (:current-round new-state) :prompt])}]))
+       [next-voting-round 10]])))

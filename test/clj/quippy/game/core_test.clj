@@ -5,9 +5,18 @@
    [clojure.string :as str]))
 
 
-(defn run-event [[game-state response-list] {:keys [event player]}]
-  (let [[next-game-state responses] (process-user-event game-state event player)]
-    [next-game-state (conj response-list responses)]))
+
+
+(defn run-event [[game-state response-list] event-fn]
+  (let [[next-game-state responses [timer-event _]] (event-fn game-state)
+        game-response [next-game-state (conj response-list responses)]]
+    (if timer-event
+      (run-event game-response timer-event)
+      game-response)))
+
+
+(defn run-user-event [game-response {:keys [event player]}]
+  (run-event game-response #(process-user-event % event player)))
 
 (defn rotate-list
   "Deterministic replacement for `shuffle`"
@@ -25,11 +34,13 @@
   output of `events`."
   [setup-events events]
   (with-redefs [shuffle (rotate-list 3)]
-    (->> events
-         (concat (flatten setup-events))
-         (reduce run-event [default-game-state []])
-         second
-         (take-last (count events)))))
+    (let [setup-state (->> setup-events
+                           flatten
+                           (reduce run-user-event [default-game-state []])
+                           first)]
+      (->> events
+           (reduce run-user-event [setup-state []])
+           second))))
 
 (defn repeat-map [keys val]
   (into {} (for [key keys] [key val])))
@@ -145,8 +156,9 @@
                                            prompt-submit-events
                                            quip-submit-events]
                                           vote-submit-event)
-          ack-responses (drop-last 1 vote-responses)
-          completed-response (last vote-responses)
+          ack-responses (drop-last 2 vote-responses)
+          completed-response (nth vote-responses (-> vote-responses count (- 2)))
+          vote-response (last vote-responses)
           first-vote-prompt (-> (simulate-events [lobby-join-events game-start-events prompt-submit-events] quip-submit-events)
                                 last
                                 vals
@@ -167,4 +179,16 @@
         (is (= (:state response) :results))
         (is (= (:quips response) expected-votes))
         (is (= (:prompter response) (get prompt->player (:prompt response))))
+        (is (str/includes? (:prompt response) "prompt")))
+      ;; FIXME: Copypasta
+      (doseq [[player response] vote-response]
+        (is (= (:state response) :vote))
+        (is (= (-> response
+                   :quips
+                   count) 3))
+        (is (= (:can-vote response)
+               (not-any? #(str/includes? % (get players player))
+                         (:quips response))))
         (is (str/includes? (:prompt response) "prompt"))))))
+
+;; TODO: Test final result tally
