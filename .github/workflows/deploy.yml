@@ -1,0 +1,30 @@
+name: Deployment
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs: null
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build jar file
+      run: lein uberjar
+    - name: Install SSH key
+      uses: shimataro/ssh-key-action@v2
+      with:
+        key: ${{ secrets.KEY }}
+        known_hosts: ${{ secrets.KNOWN_HOSTS }}
+    - name: Upload jar to remote host
+      run: scp $SOURCE $URL:$TARGET
+      env:
+        URL: ${{ secrets.URL }}
+        SOURCE: "/home/runner/work/quippy/quippy/target/uberjar/quippy.jar"
+        TARGET: "/home/deployment/quippy"
+    - name: Restart systemctl service
+      run: ssh $URL systemctl --user restart quippy
+      env:
+        URL: ${{ secrets.URL }}

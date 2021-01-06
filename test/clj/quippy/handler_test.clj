@@ -13,8 +13,7 @@
 (use-fixtures
   :once
   (fn [f]
-    (mount/start #'quippy.config/env
-                 #'quippy.handler/app-routes)
+    (mount/start #'quippy.handler/app-routes)
     (f)))
 
 (deftest test-app
