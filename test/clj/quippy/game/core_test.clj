@@ -113,10 +113,13 @@
     (is (= (for [i (range (count players))
                  :let [in-lobby (take (inc i) (into [] players))]] ;; Ordering issues?
              (repeat-map (map first in-lobby)
-                         {:players (map second in-lobby)}))
+                         {:event :state-transition
+                          :state :lobby
+                          :players (map second in-lobby)}))
            (simulate-events [] lobby-join-events))))
   (testing "starting the game"
-    (is (= [(repeat-map (map first players) {:state :prompt})]
+    (is (= [(repeat-map (map first players) {:event :state-transition
+                                             :state :prompt})]
            (simulate-events [lobby-join-events] game-start-events)))))
 
 (deftest test-prompts
@@ -128,6 +131,7 @@
              ack-responses))
       (is ((complement empty?) completed-response))
       (doseq [[player response] completed-response]
+        (is (= (:event response) :state-transition))
         (is (= (:state response) :quip))
         (is (not-any? #(str/includes? % (get players player))
                       (:prompts response)))))))
@@ -140,6 +144,7 @@
              ack-responses))
       (is ((complement empty?) completed-response))
       (doseq [[player response] completed-response]
+        (is (= (:event response) :state-transition))
         (is (= (:state response) :vote))
         (is (= (-> response
                    :quips
@@ -176,12 +181,15 @@
              ack-responses))
       (is ((complement empty?) completed-response))
       (doseq [[player response] completed-response]
+        (is (= (:event response) :state-transition))
         (is (= (:state response) :results))
         (is (= (:quips response) expected-votes))
-        (is (= (:prompter response) (get prompt->player (:prompt response))))
+        (is (= (:prompter response)
+               (get players (get prompt->player (:prompt response)))))
         (is (str/includes? (:prompt response) "prompt")))
       ;; FIXME: Copypasta
       (doseq [[player response] vote-response]
+        (is (= (:event response) :state-transition))
         (is (= (:state response) :vote))
         (is (= (-> response
                    :quips
