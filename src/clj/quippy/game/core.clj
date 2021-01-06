@@ -23,7 +23,9 @@
   [game-state {:keys [username]} player]
   (let [new-state (assoc-in game-state [:players player] username)]
     [new-state (into {} (for [player-id (-> new-state :players keys)]
-                          [player-id {:players (-> new-state :players vals)}]))]))
+                          [player-id {:event :state-transition
+                                      :state :lobby
+                                      :players (-> new-state :players vals)}]))]))
 
 ;; TODO: Equal quips per player
 (defn make-rounds! "Generates the ordering of rounds randomly"
@@ -39,16 +41,19 @@
 (defmethod process-user-event
   [:game-start :lobby]
   [game-state _ player]
-  (let [new-state (-> game-state
-                      (assoc :state :prompt)
-                      (assoc :prompts (make-rounds! (:players game-state) players-per-prompt))
-                      (assoc :score (->> game-state
-                                        :players
-                                        keys
-                                        (map #(vector % 0))
-                                        (into {}))))]
-    [new-state (into {} (for [player-id (-> new-state :players keys)]
-                          [player-id {:state :prompt}]))]))
+  (if (-> game-state :players count (> players-per-prompt))
+    (let [new-state (-> game-state
+                        (assoc :state :prompt)
+                        (assoc :prompts (make-rounds! (:players game-state) players-per-prompt))
+                        (assoc :score (->> game-state
+                                           :players
+                                           keys
+                                           (map #(vector % 0))
+                                           (into {}))))]
+      [new-state (into {} (for [player-id (-> new-state :players keys)]
+                            [player-id {:event :state-transition
+                                        :state :prompt}]))])
+    [game-state {}]))
 
 (defn extract-prompts
   "Retrieves the prompts that a player must quip on"
@@ -65,8 +70,14 @@
       [new-state {}]
       [(assoc new-state :state :quip)
        (into {} (for [player-id (-> new-state :players keys)]
-         [player-id {:state :quip
-                     :prompts (extract-prompts new-state player-id)}]))])))
+                  [player-id {:event :state-transition
+                              :state :quip
+                              :prompts (extract-prompts new-state player-id)}]))])))
+
+(defn reset-game [game-state]
+  [default-game-state
+   (into {} (for [player-id (-> game-state :players keys)]
+              [player-id {:event :reset-state}]))])
 
 (defn next-voting-round
   "Generates the next voting round if exists, or transitions to the final state"
@@ -75,13 +86,15 @@
   (if-not (seq rounds)
     [(assoc game-state :state :final)
      (into {} (for [player-id (-> game-state :players keys)]
-                [player-id {:state :final
+                [player-id {:event :state-transition
+                            :state :final
                             :scores (->> game-state
                                          :score
                                          (map (fn [[player score]] [((:players game-state) player) score]))
-                                         (into {}))}]))]
+                                         (into {}))}]))
+     [reset-game 20]]
     (let [[judge & rest-of-rounds] rounds
-          selected-round (-> game-state :prompts judge)
+          selected-round (-> game-state :prompts (get judge))
           score-tracker (->> selected-round
                              :quips
                              (map (fn [[k _]] [k 0]))
@@ -90,10 +103,11 @@
            (assoc :rounds rest-of-rounds)
            (assoc :quip->player (-> selected-round :quips set/map-invert))
            (assoc :current-round judge)
-           (assoc :votes store-tracker)
+           (assoc :votes score-tracker)
            (assoc :score (or (:score game-state) score-tracker)))
        (into {} (for [player-id (-> game-state :players keys)]
-                  [player-id {:state :vote
+                  [player-id {:event :state-transition
+                              :state :vote
                               :prompt (:prompt selected-round)
                               :quips (-> selected-round :quips vals)
                               :can-vote ((complement contains?) (:quips selected-round) player-id)}]))])))
@@ -126,7 +140,8 @@
       [new-state {}]
       [new-state
        (into {} (for [player-id (-> new-state :players keys)]
-                  [player-id {:state :results
+                  [player-id {:event :state-transition
+                              :state :results
                               :quips (->> (:quip->player new-state)
                                           (map (fn [[quip player]]
                                                  [quip {:quipper ((:players new-state) player)
@@ -135,6 +150,6 @@
                                                                 [:votes
                                                                  ((:quip->player new-state) quip)])}]))
                                           (into {}))
-                              :prompter (-> new-state :current-round)
+                              :prompter (->> new-state :current-round (get (:players new-state)))
                               :prompt (get-in new-state [:prompts (:current-round new-state) :prompt])}]))
-       [next-voting-round 10]])))
+       [next-voting-round 5]])))
