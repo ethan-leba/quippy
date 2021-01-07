@@ -1,0 +1,32 @@
+name: Deployment
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Build jar file
+      run: lein uberjar
+    - name: 
+      run: scp $BUILD_LOC "$REMOTE":"$REMOTE_LOC"
+    - name: SCP Files
+      uses: appleboy/scp-action@v0.0.1 
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        password: ${{ secrets.PASSWORD }}
+        source: "target/uberjar/quippy.jar"
+        target: "/var/quippy/quippy.jar"
+    - name: executing remote ssh commands using password
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        password: ${{ secrets.PASSWORD }}
+        script: systemctl restart quippy
