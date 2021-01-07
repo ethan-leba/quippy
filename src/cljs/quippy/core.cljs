@@ -27,8 +27,10 @@
                           (reset! value "")
                           (on-click textbox-value))))}]]])))
 
-(defmethod display :lobby [state]
-  (if-not (-> state :local-state :registered)
+(defmethod display :lobby [{:keys [local-state server-state]
+                            {:keys [registered]} :local-state
+                            {:keys [players]} :server-state}]
+  (if-not registered
     [:div
      [:h1 "Enter username:"]
      [prompt-with-button
@@ -38,13 +40,15 @@
     [:div
      [:h2 "We're in the lobby broo!"]
      [:div
-      [:p "Players in the lobby"]
-      (for [player (-> state :server-state :players)]
+      (for [player players]
         [:p.my-1 player])]
-     [:input.btn.btn-primary
+     ;; TODO: remove hardcoding
+     (let [can-start (>= (count players) 4)]
+       [:input.btn.btn-primary
         {:type :button
-         :value "Start the game"
-         :on-click #(ws/send-transit-msg! {:action :game-start})}]]))
+         :value (if can-start "Start the game" "Need at least 4 players to start")
+         :disabled (not can-start)
+         :on-click #(ws/send-transit-msg! {:action :game-start})}])]))
 
 (defmethod display :prompt [{:keys [local-state]
                              {:keys [submitted]} :local-state}]
